@@ -5,7 +5,6 @@ import os
 import sys
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone, timedelta
-import google.generativeai as genai
 
 KST = timezone(timedelta(hours=9))
 now = datetime.now(KST)
@@ -70,10 +69,7 @@ def fetch_rss_news(rss_urls, keywords, max_items=10):
 
 
 def summarize_with_gemini(topic, news_items):
-    """Gemini로 뉴스 요약 및 동향 정리"""
-    genai.configure(api_key=GEMINI_API_KEY)
-    model = genai.GenerativeModel("gemini-1.5-flash")
-
+    """Gemini REST API로 뉴스 요약 및 동향 정리"""
     if news_items:
         news_text = "\n".join([f"- {n['title']}: {n['desc']}" for n in news_items[:8]])
         prompt = f"""다음은 오늘({day_str}) {topic} 관련 뉴스 헤드라인이야:
@@ -102,7 +98,17 @@ def summarize_with_gemini(topic, news_items):
   "keywords": ["키워드1", "키워드2", "키워드3", "키워드4", "키워드5"]
 }}"""
 
-    response = model.generate_content(prompt)
+    res = requests.post(
+        f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key={GEMINI_API_KEY}",
+        json={"contents": [{"parts": [{"text": prompt}]}]},
+    )
+    res.raise_for_status()
+    response_text = res.json()["candidates"][0]["content"]["parts"][0]["text"]
+
+    class _Resp:
+        text = response_text
+
+    response = _Resp()
 
     text = response.text.strip()
     try:

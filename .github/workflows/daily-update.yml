@@ -15,7 +15,7 @@ jobs:
         with:
           python-version: '3.11'
       - name: 패키지 설치
-        run: pip install google-generativeai requests
+        run: pip install requests
       - name: 전기차 동향 수집 및 Notion 저장
         run: python update_notion.py ev
         env:
@@ -31,7 +31,7 @@ jobs:
         with:
           python-version: '3.11'
       - name: 패키지 설치
-        run: pip install google-generativeai requests
+        run: pip install requests
       - name: 차량부품 동향 수집 및 Notion 저장
         run: python update_notion.py parts
         env:
