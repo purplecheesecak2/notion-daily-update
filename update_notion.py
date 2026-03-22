@@ -84,8 +84,28 @@ def fetch_rss_news(rss_urls, keywords, max_items=7):
 
 
 def get_or_create_month_page(config):
+    # 3월은 미리 만들어둔 페이지 사용
     if now.month == 3 and now.year == 2026:
         return config["march_page_id"]
+
+    # 이미 해당 월 페이지가 있는지 검색
+    res = requests.post(
+        "https://api.notion.com/v1/search",
+        headers=HEADERS,
+        json={"query": month_str, "filter": {"property": "object", "value": "page"}},
+    )
+    for page in res.json().get("results", []):
+        title = page.get("properties", {}).get("title", {}).get("title", [])
+        parent = page.get("parent", {})
+        if (
+            title and title[0].get("plain_text") == month_str
+            and parent.get("page_id", "").replace("-", "") == config["trends_page_id"].replace("-", "")
+        ):
+            print(f"  → 기존 '{month_str}' 페이지 재사용")
+            return page["id"]
+
+    # 없으면 새로 생성
+    print(f"  → '{month_str}' 페이지 새로 생성")
     res = requests.post(
         "https://api.notion.com/v1/pages",
         headers=HEADERS,
