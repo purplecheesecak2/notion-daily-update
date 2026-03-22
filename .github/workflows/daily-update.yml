@@ -1,0 +1,39 @@
+name: Daily Notion Update
+
+on:
+  schedule:
+    - cron: '3 0 * * *'  # 매일 오전 9:03 KST (= 00:03 UTC)
+  workflow_dispatch:       # 수동 실행 버튼
+
+jobs:
+  update-ev:
+    name: 전기차 동향 업데이트
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: 패키지 설치
+        run: pip install anthropic requests
+      - name: 전기차 동향 수집 및 Notion 저장
+        run: python update_notion.py ev
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+
+  update-parts:
+    name: 차량부품 동향 업데이트
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: 패키지 설치
+        run: pip install anthropic requests
+      - name: 차량부품 동향 수집 및 Notion 저장
+        run: python update_notion.py parts
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
