@@ -5,7 +5,7 @@ import os
 import sys
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone, timedelta
-from google import genai
+import google.generativeai as genai
 
 KST = timezone(timedelta(hours=9))
 now = datetime.now(KST)
@@ -71,7 +71,8 @@ def fetch_rss_news(rss_urls, keywords, max_items=10):
 
 def summarize_with_gemini(topic, news_items):
     """Gemini로 뉴스 요약 및 동향 정리"""
-    client = genai.Client(api_key=GEMINI_API_KEY)
+    genai.configure(api_key=GEMINI_API_KEY)
+    model = genai.GenerativeModel("gemini-1.5-flash")
 
     if news_items:
         news_text = "\n".join([f"- {n['title']}: {n['desc']}" for n in news_items[:8]])
@@ -101,10 +102,7 @@ def summarize_with_gemini(topic, news_items):
   "keywords": ["키워드1", "키워드2", "키워드3", "키워드4", "키워드5"]
 }}"""
 
-    response = client.models.generate_content(
-        model="gemini-1.5-flash",
-        contents=prompt,
-    )
+    response = model.generate_content(prompt)
 
     text = response.text.strip()
     try:
