@@ -15,11 +15,11 @@ jobs:
         with:
           python-version: '3.11'
       - name: 패키지 설치
-        run: pip install anthropic requests
+        run: pip install google-genai requests
       - name: 전기차 동향 수집 및 Notion 저장
         run: python update_notion.py ev
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
 
   update-parts:
@@ -31,9 +31,9 @@ jobs:
         with:
           python-version: '3.11'
       - name: 패키지 설치
-        run: pip install anthropic requests
+        run: pip install google-genai requests
       - name: 차량부품 동향 수집 및 Notion 저장
         run: python update_notion.py parts
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}

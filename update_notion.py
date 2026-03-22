@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-import anthropic
 import requests
 import json
 import os
 import sys
 from datetime import datetime, timezone, timedelta
+from google import genai
+from google.genai import types
 
 KST = timezone(timedelta(hours=9))
 now = datetime.now(KST)
@@ -12,7 +13,7 @@ month_str = f"{now.year}년 {now.month}월"
 day_str = f"{now.month}월 {now.day}일"
 
 NOTION_TOKEN = os.environ["NOTION_TOKEN"]
-ANTHROPIC_API_KEY = os.environ["ANTHROPIC_API_KEY"]
+GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
 
 HEADERS = {
     "Authorization": f"Bearer {NOTION_TOKEN}",
@@ -53,16 +54,9 @@ def get_or_create_month_page(config):
     return res.json()["id"]
 
 
-def search_news_with_claude(topic):
-    client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
-    response = client.messages.create(
-        model="claude-opus-4-5",
-        max_tokens=2000,
-        tools=[{"type": "web_search_20250305", "name": "web_search"}],
-        messages=[
-            {
-                "role": "user",
-                "content": f"""오늘({day_str}) {topic} 관련 최신 뉴스와 기술 동향을 웹에서 검색해서 다음 JSON 형식으로만 반환해줘 (마크다운 없이):
+def search_news_with_gemini(topic):
+    client = genai.Client(api_key=GEMINI_API_KEY)
+    prompt = f"""오늘({day_str}) {topic} 관련 최신 뉴스와 기술 동향을 검색해서 다음 JSON 형식으로만 반환해줘 (마크다운, 코드블록 없이 순수 JSON만):
 {{
   "news": [
     {{"title": "뉴스 제목", "summary": "한 줄 요약"}},
@@ -77,26 +71,30 @@ def search_news_with_claude(topic):
     "기술 트렌드 3"
   ],
   "keywords": ["키워드1", "키워드2", "키워드3", "키워드4", "키워드5"]
-}}""",
-            }
-        ],
+}}"""
+
+    response = client.models.generate_content(
+        model="gemini-2.0-flash",
+        contents=prompt,
+        config=types.GenerateContentConfig(
+            tools=[types.Tool(google_search=types.GoogleSearch())]
+        ),
     )
-    for block in response.content:
-        if block.type == "text":
-            text = block.text.strip()
-            try:
-                if "```json" in text:
-                    text = text.split("```json")[1].split("```")[0].strip()
-                elif "```" in text:
-                    text = text.split("```")[1].split("```")[0].strip()
-                return json.loads(text)
-            except Exception:
-                pass
-    return {
-        "news": [{"title": f"{topic} 뉴스 수집 실패", "summary": "다음에 다시 시도해주세요"}],
-        "trends": ["정보 없음"],
-        "keywords": [topic],
-    }
+
+    text = response.text.strip()
+    try:
+        if "```json" in text:
+            text = text.split("```json")[1].split("```")[0].strip()
+        elif "```" in text:
+            text = text.split("```")[1].split("```")[0].strip()
+        return json.loads(text)
+    except Exception as e:
+        print(f"JSON 파싱 실패: {e}\n응답: {text[:200]}")
+        return {
+            "news": [{"title": f"{topic} 뉴스 수집 실패", "summary": "다음에 다시 시도해주세요"}],
+            "trends": ["정보 없음"],
+            "keywords": [topic],
+        }
 
 
 def add_toggle_to_notion(page_id, topic, data, toggle_prefix, news_icon):
@@ -161,8 +159,8 @@ def main(mode):
     print(f"[{day_str}] {config['topic']} 동향 수집 시작...")
 
     month_page_id = get_or_create_month_page(config)
-    print("Claude API로 최신 뉴스 검색 중...")
-    data = search_news_with_claude(config["topic"])
+    print("Gemini API로 최신 뉴스 검색 중...")
+    data = search_news_with_gemini(config["topic"])
 
     print("Notion에 저장 중...")
     result = add_toggle_to_notion(
