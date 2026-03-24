@@ -2,6 +2,7 @@
 import requests
 import os
 import sys
+import re
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone, timedelta
 
@@ -46,6 +47,27 @@ CONFIGS = {
 }
 
 
+def clean_text(text):
+    """HTML 태그 제거 및 공백 정리"""
+    text = re.sub(r"<[^>]+>", "", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
+
+
+def make_summary(desc, max_len=200):
+    """RSS 설명에서 요약 추출 — 문장 단위로 자르고 말줄임표 추가"""
+    text = clean_text(desc)
+    if len(text) <= max_len:
+        return text
+    # 문장 끝(. ! ?) 기준으로 자르기
+    truncated = text[:max_len]
+    for end_char in ["다.", "다!", "다?", ". ", "! ", "? "]:
+        idx = truncated.rfind(end_char)
+        if idx > max_len // 2:
+            return truncated[:idx + (2 if end_char.endswith(" ") else 1)]
+    return truncated.rstrip() + "…"
+
+
 def fetch_rss_news(rss_urls, keywords, max_items=7):
     news_items = []
     seen = set()
@@ -54,25 +76,21 @@ def fetch_rss_news(rss_urls, keywords, max_items=7):
             res = requests.get(url, timeout=10, headers={"User-Agent": "Mozilla/5.0"})
             root = ET.fromstring(res.content)
             for item in root.iter("item"):
-                title = item.findtext("title", "").strip()
-                desc = (item.findtext("description", "") or "").strip()
-                link = (item.findtext("link", "") or "").strip()
-                pub_date = (item.findtext("pubDate", "") or "").strip()
+                title = clean_text(item.findtext("title", ""))
+                desc  = item.findtext("description", "") or ""
+                link  = clean_text(item.findtext("link", "") or "")
 
-                # HTML 태그 제거
-                import re
-                desc = re.sub(r"<[^>]+>", "", desc)[:120]
+                summary = make_summary(desc)
 
                 if title in seen:
                     continue
-                text = f"{title} {desc}".lower()
+                text = f"{title} {summary}".lower()
                 if any(kw.lower() in text for kw in keywords):
                     seen.add(title)
                     news_items.append({
                         "title": title,
-                        "desc": desc,
+                        "summary": summary,
                         "link": link,
-                        "date": pub_date,
                     })
                 if len(news_items) >= max_items:
                     break
@@ -84,11 +102,9 @@ def fetch_rss_news(rss_urls, keywords, max_items=7):
 
 
 def get_or_create_month_page(config):
-    # 3월은 미리 만들어둔 페이지 사용
     if now.month == 3 and now.year == 2026:
         return config["march_page_id"]
 
-    # 이미 해당 월 페이지가 있는지 검색
     res = requests.post(
         "https://api.notion.com/v1/search",
         headers=HEADERS,
@@ -104,7 +120,6 @@ def get_or_create_month_page(config):
             print(f"  → 기존 '{month_str}' 페이지 재사용")
             return page["id"]
 
-    # 없으면 새로 생성
     print(f"  → '{month_str}' 페이지 새로 생성")
     res = requests.post(
         "https://api.notion.com/v1/pages",
@@ -118,51 +133,77 @@ def get_or_create_month_page(config):
     return res.json()["id"]
 
 
-def add_toggle_to_notion(page_id, topic, news_items, toggle_prefix):
+def build_news_blocks(topic, news_items):
     if not news_items:
-        children = [
-            {
-                "type": "paragraph",
-                "paragraph": {"rich_text": [{"type": "text", "text": {"content": "오늘 수집된 뉴스가 없습니다."}}]},
-            }
-        ]
-    else:
-        children = [
-            {
-                "type": "heading_3",
-                "heading_3": {
-                    "rich_text": [{"type": "text", "text": {"content": f"📰 오늘의 {topic} 뉴스 ({len(news_items)}건)"}, "annotations": {"bold": True, "color": "blue"}}]
-                },
-            }
-        ]
-        for item in news_items:
-            # 제목 + 링크
-            rich = [{"type": "text", "text": {"content": f"• {item['title']}"}, "annotations": {"bold": True}}]
-            if item["desc"]:
-                rich.append({"type": "text", "text": {"content": f"\n   {item['desc']}"}})
-            children.append({
-                "type": "paragraph",
-                "paragraph": {"rich_text": rich},
+        return [{
+            "type": "paragraph",
+            "paragraph": {"rich_text": [{"type": "text", "text": {"content": "오늘 수집된 뉴스가 없습니다."}}]},
+        }]
+
+    blocks = [{
+        "type": "heading_3",
+        "heading_3": {
+            "rich_text": [{
+                "type": "text",
+                "text": {"content": f"📰 오늘의 {topic} 뉴스 ({len(news_items)}건)"},
+                "annotations": {"bold": True, "color": "blue"},
+            }]
+        },
+    }]
+
+    for item in news_items:
+        rich = []
+
+        # 제목 (굵게)
+        rich.append({
+            "type": "text",
+            "text": {"content": f"• {item['title']}\n"},
+            "annotations": {"bold": True},
+        })
+
+        # 요약
+        if item["summary"]:
+            rich.append({
+                "type": "text",
+                "text": {"content": f"   {item['summary']}\n"},
             })
-            # 구분선 역할 빈 줄
-            children.append({
-                "type": "paragraph",
-                "paragraph": {"rich_text": []},
+
+        # 원문 링크
+        if item["link"]:
+            rich.append({
+                "type": "text",
+                "text": {"content": "   "},
             })
+            rich.append({
+                "type": "text",
+                "text": {"content": "🔗 원문 보기", "link": {"url": item["link"]}},
+                "annotations": {"color": "blue"},
+            })
+
+        blocks.append({"type": "paragraph", "paragraph": {"rich_text": rich}})
+        blocks.append({"type": "paragraph", "paragraph": {"rich_text": []}})  # 빈 줄
+
+    return blocks
+
+
+def add_toggle_to_notion(page_id, topic, news_items, toggle_prefix):
+    children = build_news_blocks(topic, news_items)
 
     res = requests.patch(
         f"https://api.notion.com/v1/blocks/{page_id}/children",
         headers=HEADERS,
         json={
-            "children": [
-                {
-                    "type": "toggle",
-                    "toggle": {
-                        "rich_text": [{"type": "text", "text": {"content": f"{toggle_prefix} {day_str} {topic} 동향"}, "annotations": {"bold": True}}],
-                        "children": children,
-                    },
-                }
-            ]
+            "children": [{
+                "type": "toggle",
+                "toggle": {
+                    "rich_text": [{
+                        "type": "text",
+                        "text": {"content": f"{toggle_prefix} {day_str} {topic} 동향"},
+                        "annotations": {"bold": True},
+                    }],
+                    "children": children,
+                },
+            }]
         },
     )
     return res.json()
